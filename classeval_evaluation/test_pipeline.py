@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 import unittest
 from pathlib import Path
@@ -18,16 +19,20 @@ class AutoTest:
         root_dir: Path,
         id_key="task_id",
         pred_key="predict",
+        tmp_dir: Path = Path("/tmp/autotest"),
     ):
         self.eval_data = self.get_eval_data(eval_data_path)
         self.id_key = id_key
         self.pred_key = pred_key
+        self.tmp_dir = tmp_dir
 
-        self.root_dir = root_dir
+        self.root_dir = root_dir.absolute()
         self.output_dir = self.root_dir / "output"
         self.log_dir = self.root_dir / "log"
         self.result_dir = self.output_dir / "result"
 
+        if not self.tmp_dir.exists():
+            self.tmp_dir.mkdir()
         if not self.root_dir.exists():
             self.root_dir.mkdir()
         if not self.output_dir.exists():
@@ -42,18 +47,20 @@ class AutoTest:
         with open(path, encoding="utf-8") as file:
             data = json.load(file)
         for item in data:
-            eval_data[item[self.id_key]] = item
+            eval_data[item["task_id"]] = item
         return eval_data
 
     def gen_py_file(self, test_code_name, code_list, test_code):
-        cnt = 0
-        for code_snippet in code_list:
+        for i, code_snippet in enumerate(code_list):
             test_code_py = code_snippet + "\n" + test_code
-            with open(
-                test_code_name + "_" + str(cnt) + ".py", "w", encoding="utf-8"
-            ) as f:
+            filename = test_code_name + "_" + str(i) + ".py"
+            with open(self.tmp_dir / filename, "w", encoding="utf-8") as f:
                 f.write(test_code_py)
-            cnt += 1
+
+    def remove_py_file(self, test_code_name, code_list):
+        for i in range(len(code_list)):
+            filename = test_code_name + "_" + str(i) + ".py"
+            os.remove(self.tmp_dir / filename)
 
     def get_leading_spaces(self, string):
         return len(string) - len(string.lstrip())
@@ -63,7 +70,8 @@ class AutoTest:
         imports = re.findall(pattern, code_snippet, re.MULTILINE)
         return imports
 
-    def extract_code(self, text, model_name):
+    def extract_code(self, text, file_path):
+        model_name = file_path.parent.stem
         text = text.rstrip()
         output_split_identifier_list = ["### Response:", "@@ Response:", "[/INST]"]
         for identifier in output_split_identifier_list:
@@ -153,7 +161,7 @@ class AutoTest:
 
         for item in data:
             code_list[item[self.id_key]] = []
-            for predict in item[self.pred_key]:
+            for predict in item.get(self.pred_key, []):
                 predict = self.extract_code(predict, file_path)
                 predict = self.add_static_statement(predict)
                 predict = (
@@ -187,6 +195,9 @@ class AutoTest:
 
             for test_class in test_classes:
                 res_item = {}
+                sys.path.append(str(self.tmp_dir.absolute()))
+                cdw = os.getcwd()
+                os.chdir(self.tmp_dir)
                 try:
                     res = self.run_unit_test(test_code, test_class, model_name)
                     res_item["errors"] = len(res.errors)
@@ -198,6 +209,7 @@ class AutoTest:
                     res_item["failures"] = 0
                     res_item["testsRun"] = 0
                     result[test_code][test_class] = res_item
+                os.chdir(cdw)
 
         return result
 
@@ -207,7 +219,6 @@ class AutoTest:
             json.dump(result, f, indent=4, sort_keys=True)
 
     def test_pipeline(self, model_name, gen_file_path):
-
         result_dict = {}
         # get generate code list
         code_list = self.gen_code_list(gen_file_path)
@@ -250,7 +261,6 @@ class AutoTest:
         return "fail"
 
     def evaluate(self, model_list):
-
         result_dict = {}
         for model_name in model_list:
             model_result_path = self.result_dir / f"{model_name}_class_result.json"
@@ -409,22 +419,5 @@ class AutoTest:
         return result
 
     def tear_down(self):
-        file_list = os.listdir()
-        reserved_files = [
-            "evaluation.py",
-            "path_util.py",
-            "test_pipeline.py",
-            "README.md",
-            "incremental generation.png",
-            "run.sh",
-        ]
-        for item in file_list:
-            if (
-                item not in reserved_files
-                and "test_pipeline" not in item
-                and "_pycache__" not in item
-            ):
-                if os.path.isdir(item):
-                    shutil.rmtree(item)
-                else:
-                    os.remove(item)
+        """remove all files and directories recursively in self.tmp_dir"""
+        shutil.rmtree(self.tmp_dir)
