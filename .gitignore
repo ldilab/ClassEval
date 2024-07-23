@@ -1,2 +1,4 @@
 *.pyc
 ClassEval.egg-info
+data/output
+data/result
