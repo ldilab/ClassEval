@@ -15,10 +15,10 @@ from scipy.special import comb
 class AutoTest:
     def __init__(
         self,
-        eval_data_path,
+        eval_data_path: Path,
         root_dir: Path,
-        id_key="task_id",
-        pred_key="predict",
+        id_key: str = "task_id",
+        pred_key: str = "predict",
         tmp_dir: Path = Path("/tmp/autotest"),
     ):
         self.eval_data = self.get_eval_data(eval_data_path)
