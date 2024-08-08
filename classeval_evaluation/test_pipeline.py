@@ -1,3 +1,4 @@
+from collections import defaultdict
 import importlib
 import json
 import os
@@ -154,12 +155,15 @@ class AutoTest:
         return "\n".join(final_code_list)
 
     def gen_code_list(self, file_path):
-        code_list = {}
+        code_list = defaultdict(list)
 
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         for item in data:
+            if self.id_key not in item:
+                continue
+
             code_list[item[self.id_key]] = []
             for predict in item.get(self.pred_key, []):
                 predict = self.extract_code(predict, file_path)
